@@ -34,6 +34,7 @@ class format_grid_renderer extends format_section_renderer_base {
     private $courseformat; // Our course format object as defined in lib.php.
     private $settings; // Settings array.
     private $shadeboxshownarray = array(); // Value of 1 = not shown, value of 2 = shown - to reduce ambiguity in JS.
+    private $portable = 0; // 1 = mobile, 2 = tablet.
 
     /**
      * Constructor method, calls the parent constructor - MDL-21097
@@ -89,9 +90,9 @@ class format_grid_renderer extends format_section_renderer_base {
         global $PAGE;
 
         $summarystatus = $this->courseformat->get_summary_visibility($course->id);
-        $context = context_course::instance($course->id);
+        $coursecontext = context_course::instance($course->id);
         $editing = $PAGE->user_is_editing();
-        $hascapvishidsect = has_capability('moodle/course:viewhiddensections', $context);
+        $hascapvishidsect = has_capability('moodle/course:viewhiddensections', $coursecontext);
 
         if ($editing) {
             $streditsummary = get_string('editsummary');
@@ -118,30 +119,63 @@ class format_grid_renderer extends format_section_renderer_base {
         echo html_writer::start_tag('div', array('id' => 'gridiconcontainer', 'role' => 'navigation',
             'aria-label' => get_string('gridimagecontainer', 'format_grid')));
         echo html_writer::start_tag('ul', array('class' => 'gridicons'));
-        // Print all of the imaege containers.
-        $this->make_block_icon_topics($context->id, $modinfo, $course, $editing, $hascapvishidsect, $urlpicedit);
+        // Print all of the image containers.
+        $this->make_block_icon_topics($coursecontext->id, $modinfo, $course, $editing, $hascapvishidsect, $urlpicedit);
         echo html_writer::end_tag('ul');
         echo html_writer::end_tag('div');
         echo html_writer::start_tag('div', array('id' => 'gridshadebox'));
-        echo html_writer::tag('div', '', array('id' => 'gridshadebox_overlay', 'style' => 'display:none;'));
-        echo html_writer::start_tag('div', array('id' => 'gridshadebox_content', 'class' => 'hide_content',
+        echo html_writer::tag('div', '', array('id' => 'gridshadebox_overlay', 'style' => 'display: none;'));
+
+        $gridshadeboxcontentclasses = array('hide_content');
+        if (!$editing) {
+            if ($this->settings['fitsectioncontainertowindow'] == 2) {
+                 $gridshadeboxcontentclasses[] = 'fit_to_window';
+            } else {
+                 $gridshadeboxcontentclasses[] = 'absolute';
+            }
+        }
+
+        echo html_writer::start_tag('div', array('id' => 'gridshadebox_content', 'class' => implode(' ', $gridshadeboxcontentclasses),
             'role' => 'region',
             'aria-label' => get_string('shadeboxcontent', 'format_grid')));
 
-        echo html_writer::tag('img', '', array('id' => 'gridshadebox_close', 'style' => 'display:none;',
+        $deviceextra = '';
+        switch ($this->portable) {
+            case 1: // Mobile.
+                $deviceextra = ' gridshadebox_mobile';
+            break;
+            case 2: // Tablet.
+                $deviceextra = ' gridshadebox_tablet';
+            break;
+            default:
+            break;
+        }
+        echo html_writer::tag('img', '', array('id' => 'gridshadebox_close', 'style' => 'display: none;',
+            'class' => $deviceextra,
             'src' => $this->output->pix_url('close', 'format_grid'),
             'role' => 'link',
             'aria-label' => get_string('closeshadebox', 'format_grid')));
-        echo html_writer::tag('img', '', array('id' => 'gridshadebox_left', 'class' => 'gridshadebox_arrow',
-            'style' => 'display:none;',
-            'src' => $this->output->pix_url('arrow_l', 'format_grid'),
-            'role' => 'link',
-            'aria-label' => get_string('previoussection', 'format_grid')));
-        echo html_writer::tag('img', '', array('id' => 'gridshadebox_right', 'class' => 'gridshadebox_arrow',
-            'style' => 'display:none;',
-            'src' => $this->output->pix_url('arrow_r', 'format_grid'),
-            'role' => 'link',
-            'aria-label' => get_string('nextsection', 'format_grid')));
+
+        // Only show the arrows if there is more than one box shown.
+        if (($course->numsections > 1) || (($course->numsections == 1) && (!$this->topic0_at_top))) {
+            echo html_writer::start_tag('div', array('id' => 'gridshadebox_left',
+                'class' => 'gridshadebox_area gridshadebox_left_area',
+                'style' => 'display: none;',
+                'role' => 'link',
+                'aria-label' => get_string('previoussection', 'format_grid')));
+            echo html_writer::tag('img', '', array('class' => 'gridshadebox_arrow gridshadebox_left'.$deviceextra,
+                'src' => $this->output->pix_url('fa-arrow-circle-left-w', 'format_grid')));
+            echo html_writer::end_tag('div');
+            echo html_writer::start_tag('div', array('id' => 'gridshadebox_right',
+                'class' => 'gridshadebox_area gridshadebox_right_area',
+                'style' => 'display: none;',
+                'role' => 'link',
+                'aria-label' => get_string('nextsection', 'format_grid')));
+            echo html_writer::tag('img', '', array('class' => 'gridshadebox_arrow gridshadebox_right'.$deviceextra,
+                'src' => $this->output->pix_url('fa-arrow-circle-right-w', 'format_grid')));
+            echo html_writer::end_tag('div');
+        }
+
         echo $this->start_section_list();
         // If currently moving a file then show the current clipboard.
         $this->make_block_show_clipboard_if_file_moving($course);
@@ -172,9 +206,10 @@ class format_grid_renderer extends format_section_renderer_base {
             $PAGE->user_is_editing(),
             $sectionredirect,
             $course->numsections,
-            json_encode($this->shadeboxshownarray)));
+            json_encode($this->shadeboxshownarray),
+            right_to_left()));
         // Initialise the key control functionality...
-        $PAGE->requires->yui_module('moodle-format_grid-gridkeys', 'M.format_grid.gridkeys.init', null, null, true);
+        $PAGE->requires->yui_module('moodle-format_grid-gridkeys', 'M.format_grid.gridkeys.init', array(array('editing' => $PAGE->user_is_editing())), null, true);
     }
 
     /**
@@ -251,8 +286,6 @@ class format_grid_renderer extends format_section_renderer_base {
             'aria-label' => $sectionname)
         );
 
-        echo html_writer::tag('div', '&nbsp;', array('class' => 'right side'));
-
         echo html_writer::start_tag('div', array('class' => 'content'));
 
         if (!$onsectionpage) {
@@ -264,13 +297,12 @@ class format_grid_renderer extends format_section_renderer_base {
         echo $this->format_summary_text($thissection);
 
         if ($editing) {
-            $link = html_writer::link(
+            echo html_writer::link(
                             new moodle_url('editsection.php', array('id' => $thissection->id)),
                                 html_writer::empty_tag('img', array('src' => $urlpicedit,
                                                                      'alt' => $streditsummary,
                                                                      'class' => 'iconsmall edit')),
                                                         array('title' => $streditsummary));
-            echo $this->topic0_at_top ? html_writer::tag('p', $link) : $link;
         }
         echo html_writer::end_tag('div');
 
@@ -335,8 +367,9 @@ class format_grid_renderer extends format_section_renderer_base {
             $thissection = $modinfo->get_section_info($section);
 
             // Check if section is visible to user.
-            $showsection = $hascapvishidsect || ($thissection->visible && ($thissection->available ||
-                    $thissection->showavailability || !$course->hiddensections));
+            $showsection = $hascapvishidsect || ($thissection->uservisible ||
+                    ($thissection->visible && !$thissection->available &&
+                    !empty($thissection->availableinfo)));
 
             if ($showsection) {
                 // We now know the value for the grid shade box shown array.
@@ -559,7 +592,7 @@ class format_grid_renderer extends format_section_renderer_base {
      */
     private function make_block_topics($course, $sections, $modinfo, $editing, $hascapvishidsect, $streditsummary,
             $urlpicedit, $onsectionpage) {
-        $context = context_course::instance($course->id);
+        $coursecontext = context_course::instance($course->id);
         unset($sections[0]);
         for ($section = 1; $section <= $course->numsections; $section++) {
             $thissection = $modinfo->get_section_info($section);
@@ -612,8 +645,8 @@ class format_grid_renderer extends format_section_renderer_base {
                 }
                 echo html_writer::end_tag('div');
 
-                echo $this->section_availability_message($thissection,has_capability('moodle/course:viewhiddensections',
-                        $context));
+                echo $this->section_availability_message($thissection, has_capability('moodle/course:viewhiddensections',
+                        $coursecontext));
 
                 echo $this->courserenderer->course_section_cm_list($course, $thissection, 0);
                 echo $this->courserenderer->course_section_add_cm_control($course, $thissection->section, 0);
@@ -622,7 +655,7 @@ class format_grid_renderer extends format_section_renderer_base {
                 echo html_writer::tag('p', get_string('hidden_topic', 'format_grid'));
 
                 echo $this->section_availability_message($thissection, has_capability('moodle/course:viewhiddensections',
-                        $context));
+                        $coursecontext));
             }
 
             echo html_writer::end_tag('div');
@@ -758,5 +791,9 @@ class format_grid_renderer extends format_section_renderer_base {
         }
 
         return $sectionsedited;
+    }
+
+    public function set_portable($portable) {
+        $this->portable = $portable;
     }
 }
